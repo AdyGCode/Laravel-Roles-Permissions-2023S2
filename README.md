@@ -31,7 +31,7 @@ DB_DATABASE=laravel_roles_permissions
 DB_USERNAME=laravel_roles_permissions
 DB_PASSWORD=Password1
 ```
-Laravel Pint
+## Laravel Pint
 a way to make your code formatting to standards and more
 install using:
 
@@ -49,7 +49,9 @@ To cover your whole application use:
 
 Using Pint will make your code look more standardised, but it will not fix your coding errors!
 
-add laravel Breeze
+## User Interface - Laravel Breeze (Blade based)
+
+Add laravel Breeze
 
 ```shell
 composer require laravel/breeze --dev
@@ -61,8 +63,8 @@ Open a new terminal and run the tailwind compilation, and leave it running
 ```shell
 npm install && npm update && npm run dev
 ```
-Back in the first terminal...
-Publish the breeze config and other items
+
+Back in the first terminal... Publish the breeze config and other items
 ```shell
 php artisan vendor:publish --tag=laravel-errors
 php artisan vendor:publish --tag=laravel-mail
@@ -83,41 +85,175 @@ Install Spatie's Laravel Permissions package
 ```shell
 composer require spatie/laravel-permission
 ```
+
 Publish the config etc
+
 ```shell
 php artisan vendor:publish --provider="Spatie\Permission\PermissionServiceProvider"
 ```
+
 or use:
+
 ```shell
 php artisan vendor:publish --tag=permission-config --tag=permission-migrations
 ```
-Our example for this will have a products table, so create the model, migration and other items
+
+## Users
+
+The users table is created by default within Laravel. We will need a user Controller, Seeder, ...
+
 ```shell
-php artisan make:model Product -ars
+php artisan make:controller UserController --resource
+php artisan make:controller UserSeeder
 ```
-Edit the Product Model
+
+User Controller:
+
 ```php
-    protected $fillable = [
-        'name', 'detail'
-    ];
-```
-Edit the Product Migration
-```php
-    public function up(): void
+
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\User;
+use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\View\View;
+use Spatie\Permission\Models\Role;
+
+class UserController extends Controller
+{
+    /**
+     * Display a listing of the resource.
+     *
+     * @return \Illuminate\Http\Response
+     */
+    public function index(Request $request): View
     {
-        Schema::create('products', function (Blueprint $table) {
-            $table->id();
-            $table->string('name');
-            $table->text('detail')->nullable();
-            $table->string('size', 6)->nullable();
-            $table->string('colour', 64)->nullable();
-            $table->timestamps();
-            $table->index(['name'], 'product_name_index');
-            $table->index(['colour'], 'product_colour_index');
-        });
+        $data = User::latest()->paginate(5);
+
+        return view('users.index', compact('data'))
+            ->with('i', ($request->input('page', 1) - 1) * 5);
     }
+
+    /**
+     * Show the form for creating a new resource.
+     *
+     * @return \Illuminate\Http\Response
+     */
+    public function create(): View
+    {
+        $roles = Role::pluck('name', 'name')->all();
+        return view('users.create', compact('roles'));
+    }
+
+    /**
+     * Store a newly created resource in storage.
+     *
+     * @return \Illuminate\Http\Response
+     */
+    public function store(Request $request): RedirectResponse
+    {
+        /* TODO: Move the validation to StoreUserResponse */
+        $this->validate($request, [
+            'name' => 'required',
+            'email' => 'required|email|unique:users,email',
+            'password' => 'required|same:confirm-password',
+            'roles' => 'required',
+        ]);
+
+        $input = $request->all();
+        $input['password'] = Hash::make($input['password']);
+
+        $user = User::create($input);
+        $user->assignRole($request->input('roles'));
+
+        return redirect()->route('users.index')
+            ->with('success', 'User created successfully');
+    }
+
+    /**
+     * Display the specified resource.
+     *
+     * @param  int  $id
+     * @return \Illuminate\Http\Response
+     */
+    public function show($id): View
+    {
+        $user = User::find($id);
+        return view('users.show', compact('user'));
+    }
+
+    /**
+     * Show the form for editing the specified resource.
+     *
+     * @param  int  $id
+     * @return \Illuminate\Http\Response
+     */
+    public function edit($id): View
+    {
+        $user = User::find($id);
+        $roles = Role::pluck('name', 'name')->all();
+        $userRole = $user->roles->pluck('name', 'name')->all();
+        return view('users.edit', compact('user', 'roles', 'userRole'));
+    }
+
+    /**
+     * Update the specified resource in storage.
+     *
+     * @param  int  $id
+     * @return \Illuminate\Http\Response
+     */
+    public function update(Request $request, $id): RedirectResponse
+    {
+        /* TODO: Move the validation to UpdateUserResponse */
+
+        $this->validate($request, [
+            'name' => 'required',
+            'email' => 'required|email|unique:users,email,'.$id,
+            'password' => 'same:confirm-password',
+            'roles' => 'required',
+        ]);
+
+        $input = $request->all();
+
+        if (!empty($input['password'])) {
+            $input['password'] = Hash::make($input['password']);
+        } else {
+            $input = Arr::except($input, ['password']);
+        }
+
+        $user = User::find($id);
+        $user->update($input);
+
+        DB::table('model_has_roles')->where('model_id', $id)->delete();
+        $user->assignRole($request->input('roles'));
+
+        return redirect()->route('users.index')
+            ->with('success', 'User updated successfully');
+    }
+
+    /**
+     * Remove the specified resource from storage.
+     *
+     * @param  int  $id
+     * @return \Illuminate\Http\Response
+     */
+    public function destroy($id): RedirectResponse
+    {
+        User::find($id)->delete();
+
+        return redirect()->route('users.index')
+            ->with('success', 'User deleted successfully');
+    }
+}
+
 ```
-The User Seeder is shown here:
+
+Now for the seed data for the Users...
+
 ```php
 public function run(): void
     {
@@ -157,360 +293,20 @@ public function run(): void
             ]);
         }
     }
+
 ```
-The Product Seeder is shown here:
-```php
-    public function run(): void
-    {
-        $seedProducts = [
-            [
-                'name' => 'T-Shirt',
-                'detail' => 'Unisex T-Shirt, Plain',
-                'size' => 'XL',
-                'colour' => 'black',
-            ],
-            [
-                'name' => 'T-Shirt',
-                'detail' => 'Unisex T-Shirt, Plain',
-                'size' => 'S',
-                'colour' => 'green',
-            ],
-            [
-                'name' => 'T-Shirt',
-                'detail' => 'Unisex T-Shirt, Plain',
-                'size' => 'XL',
-                'colour' => 'lime',
-            ],
-        ];
-        foreach ($seedProducts as $seedProduct) {
-            $product = Product::create($seedProduct);
-        }
-    }
-```
-The Database Seeder now reads:
-```php
-    public function run(): void
-    {
-        $this->call([
-            UserSeeder::class,
-            ProductSeeder::class,
-        ]);
-    }
-```
-Run the migrations
+
+## Roles
+
+The Roles will need to be created...
+
 ```shell
-php artisan migrate:fresh --step --seed
+php artisan make:controller RoleController --resource
+php artisan make:controller RoleSeeder
 ```
----
-Add the Role capability to the User model
-In the "use" section at the top of the User Model, ensure the HasRoles trait is added:
-```php
-use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Foundation\Auth\User as Authenticatable;
-use Illuminate\Notifications\Notifiable;
-use Laravel\Sanctum\HasApiTokens;
-use Spatie\Permission\Traits\HasRoles;
-```
-Also add the HasRoles to the use line inside the class definition:
-```php
-class User extends Authenticatable
-{
-    use HasApiTokens, HasFactory, Notifiable, HasRoles;
-...
-```
---- 
-Middleware!
-Time to add the middleware to the `app/Http/Kernel.php` file.
-Locate the middleware section and the middleware groups section.
-Between these add the following route middleware entry:
-```php
-    /**
-     * The application's route middleware.
-     *
-     * These middleware may be assigned to groups or used individually.
-     *
-     * @var array
-     */
-    protected $routeMiddleware = [
-        'role' => \Spatie\Permission\Middlewares\RoleMiddleware::class,
-        'permission' => \Spatie\Permission\Middlewares\PermissionMiddleware::class,
-        'role_or_permission' => \Spatie\Permission\Middlewares\RoleOrPermissionMiddleware::class,
-    ];
-```
----
-Add the Web Routes to ensure logged in to use the users, products and other functions.
-```php
-Route::group(['middleware' => ['auth']], function () {
-    Route::resource('roles', RoleController::class);
-    Route::resource('users', UserController::class);
-    Route::resource('products', ProductController::class);
-});
-```
----
-User Controller
-```php
-<?php
-namespace App\Http\Controllers;
-    
-use Illuminate\Http\Request;
-use App\Http\Controllers\Controller;
-use App\Models\User;
-use Spatie\Permission\Models\Role;
-use DB;
-use Hash;
-use Illuminate\Support\Arr;
-use Illuminate\View\View;
-use Illuminate\Http\RedirectResponse;
-    
-class UserController extends Controller
-{
-    /**
-     * Display a listing of the resource.
-     *
-     * @return \Illuminate\Http\Response
-     */
-    public function index(Request $request): View
-    {
-        $data = User::latest()->paginate(5);
-  
-        return view('users.index',compact('data'))
-            ->with('i', ($request->input('page', 1) - 1) * 5);
-    }
-    
-    /**
-     * Show the form for creating a new resource.
-     *
-     * @return \Illuminate\Http\Response
-     */
-    public function create(): View
-    {
-        $roles = Role::pluck('name','name')->all();
-        return view('users.create',compact('roles'));
-    }
-    
-    /**
-     * Store a newly created resource in storage.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return \Illuminate\Http\Response
-     */
-    public function store(Request $request): RedirectResponse
-    {
-        $this->validate($request, [
-            'name' => 'required',
-            'email' => 'required|email|unique:users,email',
-            'password' => 'required|same:confirm-password',
-            'roles' => 'required'
-        ]);
-    
-        $input = $request->all();
-        $input['password'] = Hash::make($input['password']);
-    
-        $user = User::create($input);
-        $user->assignRole($request->input('roles'));
-    
-        return redirect()->route('users.index')
-                        ->with('success','User created successfully');
-    }
-    
-    /**
-     * Display the specified resource.
-     *
-     * @param  int  $id
-     * @return \Illuminate\Http\Response
-     */
-    public function show($id): View
-    {
-        $user = User::find($id);
-        return view('users.show',compact('user'));
-    }
-    
-    /**
-     * Show the form for editing the specified resource.
-     *
-     * @param  int  $id
-     * @return \Illuminate\Http\Response
-     */
-    public function edit($id): View
-    {
-        $user = User::find($id);
-        $roles = Role::pluck('name','name')->all();
-        $userRole = $user->roles->pluck('name','name')->all();
-    
-        return view('users.edit',compact('user','roles','userRole'));
-    }
-    
-    /**
-     * Update the specified resource in storage.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @param  int  $id
-     * @return \Illuminate\Http\Response
-     */
-    public function update(Request $request, $id): RedirectResponse
-    {
-        $this->validate($request, [
-            'name' => 'required',
-            'email' => 'required|email|unique:users,email,'.$id,
-            'password' => 'same:confirm-password',
-            'roles' => 'required'
-        ]);
-    
-        $input = $request->all();
-        if(!empty($input['password'])){ 
-            $input['password'] = Hash::make($input['password']);
-        }else{
-            $input = Arr::except($input,array('password'));    
-        }
-    
-        $user = User::find($id);
-        $user->update($input);
-        DB::table('model_has_roles')->where('model_id',$id)->delete();
-    
-        $user->assignRole($request->input('roles'));
-    
-        return redirect()->route('users.index')
-                        ->with('success','User updated successfully');
-    }
-    
-    /**
-     * Remove the specified resource from storage.
-     *
-     * @param  int  $id
-     * @return \Illuminate\Http\Response
-     */
-    public function destroy($id): RedirectResponse
-    {
-        User::find($id)->delete();
-        return redirect()->route('users.index')
-                        ->with('success','User deleted successfully');
-    }
-}
-```
-Product Controller
-```php
-<?php
-    
-namespace App\Http\Controllers;
-    
-use App\Models\Product;
-use Illuminate\Http\Request;
-use Illuminate\View\View;
-use Illuminate\Http\RedirectResponse;
-    
-class ProductController extends Controller
-{ 
-    /**
-     * Display a listing of the resource.
-     *
-     * @return \Illuminate\Http\Response
-     */
-    function __construct()
-    {
-         $this->middleware('permission:product-list|product-create|product-edit|product-delete', ['only' => ['index','show']]);
-         $this->middleware('permission:product-create', ['only' => ['create','store']]);
-         $this->middleware('permission:product-edit', ['only' => ['edit','update']]);
-         $this->middleware('permission:product-delete', ['only' => ['destroy']]);
-    }
-    /**
-     * Display a listing of the resource.
-     *
-     * @return \Illuminate\Http\Response
-     */
-    public function index(): View
-    {
-        $products = Product::latest()->paginate(5);
-        return view('products.index',compact('products'))
-            ->with('i', (request()->input('page', 1) - 1) * 5);
-    }
-    
-    /**
-     * Show the form for creating a new resource.
-     *
-     * @return \Illuminate\Http\Response
-     */
-    public function create(): View
-    {
-        return view('products.create');
-    }
-    
-    /**
-     * Store a newly created resource in storage.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return \Illuminate\Http\Response
-     */
-    public function store(Request $request): RedirectResponse
-    {
-        request()->validate([
-            'name' => 'required',
-            'detail' => 'required',
-        ]);
-    
-        Product::create($request->all());
-    
-        return redirect()->route('products.index')
-                        ->with('success','Product created successfully.');
-    }
-    
-    /**
-     * Display the specified resource.
-     *
-     * @param  \App\Product  $product
-     * @return \Illuminate\Http\Response
-     */
-    public function show(Product $product): View
-    {
-        return view('products.show',compact('product'));
-    }
-    
-    /**
-     * Show the form for editing the specified resource.
-     *
-     * @param  \App\Product  $product
-     * @return \Illuminate\Http\Response
-     */
-    public function edit(Product $product): View
-    {
-        return view('products.edit',compact('product'));
-    }
-    
-    /**
-     * Update the specified resource in storage.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @param  \App\Product  $product
-     * @return \Illuminate\Http\Response
-     */
-    public function update(Request $request, Product $product): RedirectResponse
-    {
-         request()->validate([
-            'name' => 'required',
-            'detail' => 'required',
-        ]);
-    
-        $product->update($request->all());
-    
-        return redirect()->route('products.index')
-                        ->with('success','Product updated successfully');
-    }
-    
-    /**
-     * Remove the specified resource from storage.
-     *
-     * @param  \App\Product  $product
-     * @return \Illuminate\Http\Response
-     */
-    public function destroy(Product $product): RedirectResponse
-    {
-        $product->delete();
-    
-        return redirect()->route('products.index')
-                        ->with('success','Product deleted successfully');
-    }
-}
-```
+
 Role Controller
+
 ```php
 <?php
     
@@ -650,3 +446,269 @@ class RoleController extends Controller
     }
 }
 ```
+
+## Products
+
+Our example for this will have a products table, so create the model, migration and other items
+
+```shell
+php artisan make:model Product -ars
+```
+
+Edit the Product Model
+
+```php
+    protected $fillable = [
+        'name', 'detail'
+    ];
+```
+
+Edit the Product Migration
+```php
+    public function up(): void
+    {
+        Schema::create('products', function (Blueprint $table) {
+            $table->id();
+            $table->string('name');
+            $table->text('detail')->nullable();
+            $table->string('size', 6)->nullable();
+            $table->string('colour', 64)->nullable();
+            $table->timestamps();
+            $table->index(['name'], 'product_name_index');
+            $table->index(['colour'], 'product_colour_index');
+        });
+    }
+```
+
+The Product seeder will look like this (for the run method):
+
+```php
+
+    public function run(): void
+    {
+        $seedProducts = [
+            [
+                'name' => 'T-Shirt',
+                'detail' => 'Unisex T-Shirt, Plain',
+                'size' => 'XL',
+                'colour' => 'black',
+            ],
+            [
+                'name' => 'T-Shirt',
+                'detail' => 'Unisex T-Shirt, Plain',
+                'size' => 'S',
+                'colour' => 'green',
+            ],
+            [
+                'name' => 'T-Shirt',
+                'detail' => 'Unisex T-Shirt, Plain',
+                'size' => 'XL',
+                'colour' => 'lime',
+            ],
+        ];
+        foreach ($seedProducts as $seedProduct) {
+            $product = Product::create($seedProduct);
+        }
+    }
+```
+
+Product Controller
+
+```php
+<?php
+    
+namespace App\Http\Controllers;
+    
+use App\Models\Product;
+use Illuminate\Http\Request;
+use Illuminate\View\View;
+use Illuminate\Http\RedirectResponse;
+    
+class ProductController extends Controller
+{ 
+    /**
+     * Display a listing of the resource.
+     *
+     * @return \Illuminate\Http\Response
+     */
+    function __construct()
+    {
+         $this->middleware('permission:product-list|product-create|product-edit|product-delete', ['only' => ['index','show']]);
+         $this->middleware('permission:product-create', ['only' => ['create','store']]);
+         $this->middleware('permission:product-edit', ['only' => ['edit','update']]);
+         $this->middleware('permission:product-delete', ['only' => ['destroy']]);
+    }
+    /**
+     * Display a listing of the resource.
+     *
+     * @return \Illuminate\Http\Response
+     */
+    public function index(): View
+    {
+        $products = Product::latest()->paginate(5);
+        return view('products.index',compact('products'))
+            ->with('i', (request()->input('page', 1) - 1) * 5);
+    }
+    
+    /**
+     * Show the form for creating a new resource.
+     *
+     * @return \Illuminate\Http\Response
+     */
+    public function create(): View
+    {
+        return view('products.create');
+    }
+    
+    /**
+     * Store a newly created resource in storage.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\Response
+     */
+    public function store(Request $request): RedirectResponse
+    {
+        request()->validate([
+            'name' => 'required',
+            'detail' => 'required',
+        ]);
+    
+        Product::create($request->all());
+    
+        return redirect()->route('products.index')
+                        ->with('success','Product created successfully.');
+    }
+    
+    /**
+     * Display the specified resource.
+     *
+     * @param  \App\Product  $product
+     * @return \Illuminate\Http\Response
+     */
+    public function show(Product $product): View
+    {
+        return view('products.show',compact('product'));
+    }
+    
+    /**
+     * Show the form for editing the specified resource.
+     *
+     * @param  \App\Product  $product
+     * @return \Illuminate\Http\Response
+     */
+    public function edit(Product $product): View
+    {
+        return view('products.edit',compact('product'));
+    }
+    
+    /**
+     * Update the specified resource in storage.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @param  \App\Product  $product
+     * @return \Illuminate\Http\Response
+     */
+    public function update(Request $request, Product $product): RedirectResponse
+    {
+         request()->validate([
+            'name' => 'required',
+            'detail' => 'required',
+        ]);
+    
+        $product->update($request->all());
+    
+        return redirect()->route('products.index')
+                        ->with('success','Product updated successfully');
+    }
+    
+    /**
+     * Remove the specified resource from storage.
+     *
+     * @param  \App\Product  $product
+     * @return \Illuminate\Http\Response
+     */
+    public function destroy(Product $product): RedirectResponse
+    {
+        $product->delete();
+    
+        return redirect()->route('products.index')
+                        ->with('success','Product deleted successfully');
+    }
+}
+```
+
+### Database Seeder
+
+The Database Seeder now reads:
+
+```php
+    public function run(): void
+    {
+        $this->call([
+            RoleSeeder::class,
+            UserSeeder::class,
+            ProductSeeder::class,
+        ]);
+    }
+```
+
+Run the migrations and Seed the database...
+
+```shell
+php artisan migrate:fresh --step --seed
+```
+
+---
+
+## Add Role to user Model
+
+Add the Role capability to the User by editing the User model ... In the "use"
+section at the top of the User Model, ensure the HasRoles trait is added:
+
+```php
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Foundation\Auth\User as Authenticatable;
+use Illuminate\Notifications\Notifiable;
+use Laravel\Sanctum\HasApiTokens;
+use Spatie\Permission\Traits\HasRoles;
+```
+
+Also add the HasRoles to the use line inside the class definition:
+
+```php
+class User extends Authenticatable
+{
+    use HasApiTokens, HasFactory, Notifiable, HasRoles;
+...
+```
+
+--- 
+
+## Middleware!
+Time to add the middleware to the `app/Http/Kernel.php` file.
+Locate the middleware section and the middleware groups section.
+Between these add the following route middleware entry:
+```php
+    /**
+     * The application's route middleware.
+     *
+     * These middleware may be assigned to groups or used individually.
+     *
+     * @var array
+     */
+    protected $routeMiddleware = [
+        'role' => \Spatie\Permission\Middlewares\RoleMiddleware::class,
+        'permission' => \Spatie\Permission\Middlewares\PermissionMiddleware::class,
+        'role_or_permission' => \Spatie\Permission\Middlewares\RoleOrPermissionMiddleware::class,
+    ];
+```
+---
+Add the Web Routes to ensure logged in to use the users, products and other functions.
+```php
+Route::group(['middleware' => ['auth']], function () {
+    Route::resource('roles', RoleController::class);
+    Route::resource('users', UserController::class);
+    Route::resource('products', ProductController::class);
+});
+```
+---
